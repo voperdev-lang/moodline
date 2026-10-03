@@ -1079,16 +1079,19 @@ function sampleEntries(vis, t0, t1) {
   });
 }
 
-/* цвет линии настроения: 1 (низ) — циан, 10 — серый, 20 — магента */
+/* цвет линии настроения: ВЫРАЖЕННЫЕ цвета — циан (депрессия) ↔ заметный нейтральный ↔ магента (мания).
+   Переходная зона узкая (только 9..11 из 20): линия почти всегда ярко-циановая или ярко-магентовая. */
 function moodColor01(v01) {
+  const NEUT = [138, 138, 156]; // заметный нейтральный (ровное состояние)
   const mix = (a, b, t) => Math.round(a + (b - a) * t);
-  const g = 140;
+  if (v01 <= 0.45) return '#00d9ff';
+  if (v01 >= 0.55) return '#ff2fd6';
   if (v01 < 0.5) {
-    const t = v01 * 2;
-    return `rgb(${mix(0, g, t)},${mix(217, g, t)},${mix(255, g, t)})`;
+    const t = (v01 - 0.45) / 0.05;
+    return `rgb(${mix(0, NEUT[0], t)},${mix(217, NEUT[1], t)},${mix(255, NEUT[2], t)})`;
   }
-  const t = (v01 - 0.5) * 2;
-  return `rgb(${mix(g, 255, t)},${mix(g, 47, t)},${mix(g, 214, t)})`;
+  const t = (v01 - 0.5) / 0.05;
+  return `rgb(${mix(NEUT[0], 255, t)},${mix(NEUT[1], 47, t)},${mix(NEUT[2], 214, t)})`;
 }
 
 /* общее окно просмотра */
@@ -1326,9 +1329,9 @@ const panels = [
     title: 'смешанные состояния: настроение · энергия · мысли',
     yGrid: [{ v: 0, lbl: '1' }, { v: 0.5, lbl: '10/5' }, { v: 1, lbl: '20/10' }],
     lines: [
-      { key: 'mood', moodColor: true },
       { key: 'energy', color: COL.ener },
-      { key: 'thoughts', color: COL.think }
+      { key: 'thoughts', color: COL.think },
+      { key: 'mood', moodColor: true }
     ]
   },
   {
@@ -1650,7 +1653,7 @@ function renderNewPeriodChart(t0, t1, W, H) {
 
   const defs = [
     { title: 'настроение · энергия · мысли', yGrid: [['1', 0], ['10/5', 0.5], ['20/10', 1]],
-      lines: [ { key: 'mood', moodColor: true }, { key: 'energy', color: COL.ener }, { key: 'thoughts', color: COL.think } ] },
+      lines: [ { key: 'energy', color: COL.ener }, { key: 'thoughts', color: COL.think }, { key: 'mood', moodColor: true } ] },
     { title: 'энергия · активность (заливка = работа на упрямстве)', yGrid: [['1', 0], ['10', 1]],
       lines: [ { key: 'energy', color: COL.ener }, { key: 'act', color: COL.act } ], fillBetween: true },
     { title: 'раздражительность · тревога', yGrid: [['0', 0], ['0,5', 0.5], ['1', 1]],
