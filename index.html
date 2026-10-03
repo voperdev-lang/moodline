@@ -1274,7 +1274,8 @@ function drawPanel(cfg) {
       .map(e => ({ x: X(e.t), y: Y(NV[ln.key](e)), v01: NV[ln.key](e) }));
     if (!pts.length) continue;
     if (ln.moodColor) {
-      // настроение: цвет сегмента по значению
+      // настроение: цвет сегмента по значению; если соседние точки в разных фазах
+      // (мания → депрессия и наоборот) — сегмент красится ГРАДИЕНТОМ от цвета к цвету
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       ctx.lineWidth = 2.4 * d;
       if (pts.length === 1) {
@@ -1283,7 +1284,14 @@ function drawPanel(cfg) {
       } else {
         for (let i = 0; i < pts.length - 1; i++) {
           const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
-          ctx.strokeStyle = moodColor01((p1.v01 + p2.v01) / 2);
+          const c1 = moodColor01(p1.v01), c2 = moodColor01(p2.v01);
+          if (c1 === c2) ctx.strokeStyle = c1;
+          else {
+            const gr = ctx.createLinearGradient(p1.x, p1.y, p2.x, p2.y);
+            gr.addColorStop(0, c1);
+            gr.addColorStop(1, c2);
+            ctx.strokeStyle = gr;
+          }
           ctx.beginPath();
           ctx.moveTo(p1.x, p1.y);
           ctx.bezierCurveTo(
@@ -1760,6 +1768,7 @@ function renderNewPeriodChart(t0, t1, W, H) {
       if (!pts.length) continue;
       c.lineJoin = 'round'; c.lineCap = 'round';
       if (ln.moodColor) {
+        // настроение: градиент между точками разных фаз (мания ↔ депрессия)
         c.lineWidth = 2.2;
         if (pts.length === 1) {
           c.strokeStyle = moodColor01(pts[0].v01);
@@ -1767,7 +1776,14 @@ function renderNewPeriodChart(t0, t1, W, H) {
         } else {
           for (let i = 0; i < pts.length - 1; i++) {
             const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
-            c.strokeStyle = moodColor01((p1.v01 + p2.v01) / 2);
+            const c1 = moodColor01(p1.v01), c2 = moodColor01(p2.v01);
+            if (c1 === c2) c.strokeStyle = c1;
+            else {
+              const gr = c.createLinearGradient(p1.x, p1.y, p2.x, p2.y);
+              gr.addColorStop(0, c1);
+              gr.addColorStop(1, c2);
+              c.strokeStyle = gr;
+            }
             c.beginPath(); c.moveTo(p1.x, p1.y);
             c.bezierCurveTo(p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6, p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6, p2.x, p2.y);
             c.stroke();
