@@ -1886,7 +1886,7 @@ async function exportPDF(days) {
     pdfText(doc, dLbl, M, y + 3, 12, '#111', true);
     y += 7;
 
-    // суточный график: окно от первой до последней отметки шкал дня (не 00:00–24:00).
+    // суточный график: окно строго от первой до последней отметки шкал дня.
     // Текстовые записи и сон окно не расширяют — только точки, попадающие на график.
     const isNewScale = items.some(e => e.mood != null || e.energy != null || e.thoughts != null || e.act != null);
     const emo = isNewScale
@@ -1895,16 +1895,8 @@ async function exportPDF(days) {
     let cs = ds, ce = de;
     if (emo.length) {
       const eMin = Math.min(...emo.map(e => e.t)), eMax = Math.max(...emo.map(e => e.t));
-      const pad = Math.max(20 * 6e4, (eMax - eMin) * 0.06);
-      cs = eMin - pad; ce = eMax + pad;
-      if (cs < ds) { ce = Math.min(de, ce + (ds - cs)); cs = ds; }
-      if (ce > de) { cs = Math.max(ds, cs - (ce - de)); ce = de; }
-      if (ce - cs < 2 * 36e5) {
-        const deficit = 2 * 36e5 - (ce - cs);
-        const gL = Math.min(deficit / 2, cs - ds);
-        cs -= gL;
-        ce = Math.min(de, ce + (deficit - gL));
-      }
+      cs = eMin; ce = eMax;
+      if (ce - cs < 36e5) ce = cs + 36e5; // минимальный размах час, чтобы график не слипся
     }
 
     let chH;
