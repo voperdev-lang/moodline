@@ -239,6 +239,36 @@ input[type="range"].anx::-moz-range-thumb { background: var(--anx); }
 .sleepmarks { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
 .sm-label { font-size: 0.78rem; color: var(--muted); }
 
+/* лекарства */
+.med-add-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.med-add-row input {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--ink); padding: 8px 10px; font-family: inherit; font-size: 0.85rem;
+  color-scheme: dark; min-height: 40px;
+}
+#medName { flex: 1; min-width: 140px; }
+#medDose { width: 90px; }
+.med-times { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  padding: 7px 12px; font-size: 0.8rem; min-height: 36px; border-radius: 18px;
+}
+.chip.on { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 600; }
+.med-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.med-item {
+  display: flex; gap: 10px; align-items: baseline;
+  padding: 8px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 0.87rem;
+}
+.med-item .m-name { font-weight: 600; }
+.med-item .m-dose { color: var(--depress); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.med-item .m-times { color: var(--muted); font-size: 0.78rem; flex: 1; }
+.med-item .del {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 0.85rem; padding: 0 4px; min-height: 0; line-height: 1;
+}
+.med-item .del:hover { color: var(--danger); background: none; }
+.med-empty { color: var(--muted); font-size: 0.83rem; padding: 6px 2px; }
+
 /* навигация по дням */
 .daynav {
   display: flex; align-items: center; justify-content: center; gap: 12px;
@@ -458,6 +488,25 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
     </div>
   </section>
 
+  <!-- лекарства -->
+  <section class="card">
+    <div class="entry-head">
+      <span class="entry-title">Лекарства</span>
+      <span class="entry-when">попадут в PDF отдельным блоком</span>
+    </div>
+    <div class="med-add-row">
+      <input type="text" id="medName" placeholder="Название" autocomplete="off">
+      <input type="number" id="medDose" placeholder="мг" min="0" step="any" inputmode="decimal">
+      <div class="med-times" id="medTimes">
+        <button class="chip" data-time="morn">утро</button>
+        <button class="chip" data-time="day">день</button>
+        <button class="chip on" data-time="eve">вечер</button>
+      </div>
+      <button id="btnMedAdd" class="primary">Добавить</button>
+    </div>
+    <div id="medList" class="med-list"></div>
+  </section>
+
   <!-- сон -->
   <section class="card">
     <div class="entry-head">
@@ -569,6 +618,25 @@ const MARK_LABELS = {
   hardfall: 'сложное засыпание',
   badsleep: 'плохой сон в целом'
 };
+const MED_TIME_LABELS = { morn: 'утро', day: 'день', eve: 'вечер' };
+
+/* список лекарств: [{ name, doseMg, times: ['morn','day','eve'] }] —
+   живёт рядом с entries в том же JSON-файле */
+let meds = [];
+function persistMeds() {
+  try { localStorage.setItem('moodline.meds.fallback', JSON.stringify(meds)); } catch (e) {}
+}
+function loadMedsFallback() {
+  try {
+    const raw = localStorage.getItem('moodline.meds.fallback');
+    if (raw) { meds = JSON.parse(raw); return true; }
+  } catch (e) {}
+  return false;
+}
+function readMedsFrom(data) {
+  if (Array.isArray(data)) return [];
+  return Array.isArray(data.meds) ? data.meds : [];
+}
 
 function sortEntries() {
   entries.sort((a, b) => a.t - b.t);
@@ -628,16 +696,18 @@ legacyFileInput.addEventListener('change', async () => {
     const text = await file.text();
     const data = JSON.parse(text);
     entries = Array.isArray(data) ? data : (data.entries || []);
+    meds = readMedsFrom(data);
     sortEntries();
     legacyFileName = file.name;
     markClean();
+    renderMedList();
     chartSync();
     renderDayLog();
   } catch (e) { alert('Не удалось открыть: ' + e.message); }
 });
 
 function downloadJson() {
-  const blob = new Blob([JSON.stringify({ version: 2, entries }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ version: 2, entries, meds }, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   const base = legacyFileName ? legacyFileName.replace(/\.json$/i, '') : 'moodline-' + new Date().toISOString().slice(0, 10);
@@ -661,8 +731,10 @@ async function openFile() {
     const text = await (await handle.getFile()).text();
     const data = JSON.parse(text);
     entries = Array.isArray(data) ? data : (data.entries || []);
+    meds = readMedsFrom(data);
     sortEntries();
     markClean();
+    renderMedList();
     chartSync();
     renderDayLog();
   } catch (e) {
@@ -675,7 +747,7 @@ async function saveToFile() {
   try {
     if (!(await verifyPermission(fileHandle, true))) { alert('Нет разрешения на запись.'); return; }
     const w = await fileHandle.createWritable();
-    await w.write(JSON.stringify({ version: 2, entries }, null, 2));
+    await w.write(JSON.stringify({ version: 2, entries, meds }, null, 2));
     await w.close();
     markClean();
   } catch (e) { alert('Не удалось сохранить: ' + e.message); }
@@ -926,6 +998,67 @@ $('btnCoffee').addEventListener('click', () => {
   entries.push({ t: Date.now(), text: 'выпито кофе', auto: 'coffee' });
   sortEntries(); markDirty(); renderDayLog();
   flashDot($('btnCoffee'));
+});
+
+/* ---------- лекарства: добавить / удалить / отрисовать ---------- */
+function medTimesSelection() {
+  return [...document.querySelectorAll('#medTimes .chip')]
+    .filter(c => c.classList.contains('on'))
+    .map(c => c.dataset.time);
+}
+function renderMedList() {
+  const list = $('medList');
+  list.innerHTML = '';
+  if (!meds.length) {
+    const d = document.createElement('div');
+    d.className = 'med-empty';
+    d.textContent = 'лекарств пока нет';
+    list.appendChild(d);
+    return;
+  }
+  for (const m of meds) {
+    const item = document.createElement('div');
+    item.className = 'med-item';
+    const name = document.createElement('span');
+    name.className = 'm-name';
+    name.textContent = m.name;
+    const dose = document.createElement('span');
+    dose.className = 'm-dose';
+    dose.textContent = m.doseMg != null ? m.doseMg + ' мг' : '';
+    const times = document.createElement('span');
+    times.className = 'm-times';
+    times.textContent = (m.times || []).map(t => MED_TIME_LABELS[t] || t).join(' · ');
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.title = 'удалить';
+    del.textContent = '✕';
+    del.addEventListener('click', () => {
+      meds = meds.filter(x => x !== m);
+      persistMeds();
+      markDirty();
+      renderMedList();
+    });
+    item.appendChild(name); item.appendChild(dose); item.appendChild(times); item.appendChild(del);
+    list.appendChild(item);
+  }
+}
+$('btnMedAdd').addEventListener('click', () => {
+  const name = $('medName').value.trim();
+  if (!name) { $('medName').focus(); return; }
+  const doseRaw = $('medDose').value.trim();
+  const doseMg = doseRaw === '' ? null : Math.round(+doseRaw * 100) / 100;
+  const times = medTimesSelection();
+  if (!times.length) { alert('Выбери хотя бы одно время приёма'); return; }
+  meds.push({ name, doseMg, times });
+  persistMeds();
+  markDirty();
+  renderMedList();
+  $('medName').value = '';
+  $('medDose').value = '';
+  flashDot($('btnMedAdd'));
+});
+document.querySelectorAll('#medTimes .chip').forEach(chip => {
+  chip.addEventListener('click', () => chip.classList.toggle('on'));
 });
 
 /* ---------- текстовые записи + дневная лента ---------- */
@@ -1882,6 +2015,31 @@ async function exportPDF(days) {
   }
   let y = ly + 7;
 
+  // ===== Лекарства: отдельный блок в шапке отчёта =====
+  // пагинация: каждый элемент сам проверяет место (низ страницы — запас 12мм);
+  // длинные строки переносятся целиком, не обрываются
+  const need = h => { if (y + h > PH - 12) { doc.addPage(); y = 18; } };
+  if (meds.length) {
+    doc.setFont('Roboto', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor('#111');
+    doc.text('Лекарства', M, y);
+    y += 5;
+    for (const m of meds) {
+      const times = (m.times || []).map(t => MED_TIME_LABELS[t] || t).join(', ');
+      const dose = m.doseMg != null ? ' — ' + m.doseMg + ' мг' : '';
+      const line = '• ' + m.name + dose + ' (' + times + ')';
+      const lines = doc.splitTextToSize(line, PW - 2 * M);
+      need(lines.length * 4.6 + 1.5);
+      doc.setFont('Roboto', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor('#222');
+      doc.text(lines, M + 2, y + 3);
+      y += lines.length * 4.6 + 1.5;
+    }
+    y += 4;
+  }
+
   // титульные графики: новый (три панели) и, если есть старые записи, легаси
   const inPeriod = entries.filter(e => e.t >= t0 && e.t <= t1);
   const hasNew = inPeriod.some(e => e.mood != null || e.energy != null || e.thoughts != null || e.act != null);
@@ -1908,10 +2066,6 @@ async function exportPDF(days) {
     const items = entries.filter(e => e.t >= ds && e.t < de);
     const texts = items.filter(e => e.text);
     if (items.length === 0) continue;
-
-    // пагинация: каждый элемент дня сам проверяет место (низ страницы — запас 12мм);
-    // длинные записи переносятся целиком, не обрываются на конце страницы
-    const need = h => { if (y + h > PH - 12) { doc.addPage(); y = 18; } };
 
     const dLbl = new Date(ds).toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
     need(12);
