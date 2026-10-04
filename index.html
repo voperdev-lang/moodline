@@ -492,7 +492,12 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
   <section class="card">
     <div class="entry-head">
       <span class="entry-title">Лекарства</span>
-      <span class="entry-when">попадут в PDF отдельным блоком</span>
+      <span class="entry-when">за день — попадут в PDF</span>
+    </div>
+    <div class="daynav" style="margin:0 0 10px">
+      <button id="medPrev" class="nav-btn" aria-label="предыдущий день">‹</button>
+      <span id="medDayLabel">сегодня</span>
+      <button id="medNext" class="nav-btn" aria-label="следующий день">›</button>
     </div>
     <div class="med-add-row">
       <input type="text" id="medName" placeholder="Название" autocomplete="off">
@@ -620,9 +625,20 @@ const MARK_LABELS = {
 };
 const MED_TIME_LABELS = { morn: 'утро', day: 'день', eve: 'вечер' };
 
-/* список лекарств: [{ name, doseMg, times: ['morn','day','eve'] }] —
+/* журнал лекарств по дням: { day: 'YYYY-MM-DD', items: [{ name, doseMg, times: [...] }] } —
    живёт рядом с entries в том же JSON-файле */
-let meds = [];
+let meds = []; // массив дневных записей
+let medViewDay = 0; // 0 = сегодня, 1 = вчера, ...
+function medDayKey(offset) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - offset);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function medsRecForDay() {
+  const key = medDayKey(medViewDay);
+  return meds.find(r => r.day === key);
+}
 function persistMeds() {
   try { localStorage.setItem('moodline.meds.fallback', JSON.stringify(meds)); } catch (e) {}
 }
@@ -1000,23 +1016,37 @@ $('btnCoffee').addEventListener('click', () => {
   flashDot($('btnCoffee'));
 });
 
-/* ---------- лекарства: добавить / удалить / отрисовать ---------- */
+/* ---------- лекарства: навигация по дням, добавить / удалить / отрисовать ---------- */
+function medDayStart() {
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  return d.getTime() - medViewDay * 864e5;
+}
+function updateMedNav() {
+  const d = new Date(medDayStart());
+  if (medViewDay === 0) $('medDayLabel').textContent = 'сегодня';
+  else if (medViewDay === 1) $('medDayLabel').textContent = 'вчера';
+  else $('medDayLabel').textContent = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', weekday: 'short' });
+  $('medNext').disabled = medViewDay === 0;
+}
 function medTimesSelection() {
   return [...document.querySelectorAll('#medTimes .chip')]
     .filter(c => c.classList.contains('on'))
     .map(c => c.dataset.time);
 }
 function renderMedList() {
+  updateMedNav();
   const list = $('medList');
   list.innerHTML = '';
-  if (!meds.length) {
+  const rec = medsRecForDay();
+  const items = rec ? rec.items : [];
+  if (!items.length) {
     const d = document.createElement('div');
     d.className = 'med-empty';
-    d.textContent = 'лекарств пока нет';
+    d.textContent = 'лекарств за этот день нет';
     list.appendChild(d);
     return;
   }
-  for (const m of meds) {
+  for (const m of items) {
     const item = document.createElement('div');
     item.className = 'med-item';
     const name = document.createElement('span');
@@ -1033,7 +1063,8 @@ function renderMedList() {
     del.title = 'удалить';
     del.textContent = '✕';
     del.addEventListener('click', () => {
-      meds = meds.filter(x => x !== m);
+      rec.items = rec.items.filter(x => x !== m);
+      if (!rec.items.length) meds = meds.filter(r => r !== rec);
       persistMeds();
       markDirty();
       renderMedList();
@@ -1049,7 +1080,11 @@ $('btnMedAdd').addEventListener('click', () => {
   const doseMg = doseRaw === '' ? null : Math.round(+doseRaw * 100) / 100;
   const times = medTimesSelection();
   if (!times.length) { alert('Выбери хотя бы одно время приёма'); return; }
-  meds.push({ name, doseMg, times });
+  const key = medDayKey(medViewDay);
+  let rec = meds.find(r => r.day === key);
+  if (!rec) { rec = { day: key, items: [] }; meds.push(rec); }
+  rec.items.push({ name, doseMg, times });
+  meds.sort((a, b) => a.day < b.day ? -1 : a.day > b.day ? 1 : 0);
   persistMeds();
   markDirty();
   renderMedList();
@@ -1060,6 +1095,8 @@ $('btnMedAdd').addEventListener('click', () => {
 document.querySelectorAll('#medTimes .chip').forEach(chip => {
   chip.addEventListener('click', () => chip.classList.toggle('on'));
 });
+$('medPrev').addEventListener('click', () => { medViewDay++; renderMedList(); });
+$('medNext').addEventListener('click', () => { if (medViewDay > 0) { medViewDay--; renderMedList(); } });
 
 /* ---------- текстовые записи + дневная лента ---------- */
 const textLogInput = $('textLogInput'), btnTextLog = $('btnTextLog');
@@ -1403,7 +1440,7 @@ function drawPanel(cfg) {
 
   // разрывы: сегменты между точками дальше 12 часов друг от друга не рисуем —
   // это не данные, а мост через ночь/пропуск в записях
-  const MAXGAP = 8 * 36e5;
+  const MAXGAP = 6 * 36e5;
   function splitByGap(pts) {
     const out = [[]];
     for (let i = 0; i < pts.length; i++) {
@@ -1938,8 +1975,8 @@ function renderNewPeriodChart(t0, t1, W, H) {
         c.bezierCurveTo(p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6, p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6, p2.x, p2.y);
       }
     }
-    // разрывы: сегменты через паузу >8ч не рисуем — не тянем линию из прошлого дня
-    const MAXGAP = 8 * 36e5;
+    // разрывы: сегменты через паузу >6ч не рисуем — не тянем линию из прошлого дня
+    const MAXGAP = 6 * 36e5;
     function splitByGap(pts) {
       const out = [[]];
       for (let i = 0; i < pts.length; i++) {
@@ -2045,20 +2082,41 @@ async function exportPDF(days) {
   }
   let y = ly + 7;
 
-  // ===== Лекарства: отдельный блок в шапке отчёта =====
+  // ===== Лекарства: отдельный блок в шапке отчёта (все дни периода) =====
   // пагинация: каждый элемент сам проверяет место (низ страницы — запас 12мм);
   // длинные строки переносятся целиком, не обрываются
   const need = h => { if (y + h > PH - 12) { doc.addPage(); y = 18; } };
-  if (meds.length) {
+  // плоский список за период: [{dayKey, item}] — поддерживаем и старый плоский формат
+  const dayKeyFor = t => {
+    const d = new Date(t);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  };
+  const medLines = []; // {dateLbl, name, doseMg, times}
+  for (const rec of meds) {
+    let items = [];
+    let dayKey = null;
+    if (rec && Array.isArray(rec.items)) { items = rec.items; dayKey = rec.day; }
+    else if (rec && rec.name) { items = [rec]; dayKey = t0 ? dayKeyFor(now.getTime()) : null; } // старый плоский формат → сегодня
+    for (const it of items) {
+      medLines.push({ dayKey, name: it.name, doseMg: it.doseMg, times: it.times || [] });
+    }
+  }
+  medLines.sort((a, b) => (a.dayKey || '') < (b.dayKey || '') ? -1 : 1);
+  if (medLines.length) {
     doc.setFont('Roboto', 'bold');
     doc.setFontSize(11);
     doc.setTextColor('#111');
     doc.text('Лекарства', M, y);
     y += 5;
-    for (const m of meds) {
-      const times = (m.times || []).map(t => MED_TIME_LABELS[t] || t).join(', ');
+    for (const m of medLines) {
+      const times = m.times.map(t => MED_TIME_LABELS[t] || t).join(', ');
       const dose = m.doseMg != null ? ' — ' + m.doseMg + ' мг' : '';
-      const line = '• ' + m.name + dose + ' (' + times + ')';
+      let line = '• ' + m.name + dose;
+      if (times) line += ' (' + times + ')';
+      if (m.dayKey) {
+        const [yy, mm, dd] = m.dayKey.split('-');
+        line += ' — ' + dd + '.' + mm;
+      }
       const lines = doc.splitTextToSize(line, PW - 2 * M);
       need(lines.length * 4.6 + 1.5);
       doc.setFont('Roboto', 'normal');
