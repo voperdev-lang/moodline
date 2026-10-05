@@ -2248,6 +2248,8 @@ $('btnPDFMonth').addEventListener('click', () => exportPDF(30));
 /* ============================== Старт ============================== */
 if (!loadFallback()) setStatus('данные не загружены — откройте файл', false);
 else setStatus('загружено из резервной копии (' + entries.length + ')', !fileHandle && !legacyFileName);
+if (!loadMedsFallback()) persistMeds(); // иначе — создать пустую резервную копию
+renderMedList();
 restoreSleepDay();
 refreshSleepMarks();
 syncSliderLabels();
