@@ -2086,17 +2086,21 @@ async function exportPDF(days) {
   // пагинация: каждый элемент сам проверяет место (низ страницы — запас 12мм);
   // длинные строки переносятся целиком, не обрываются
   const need = h => { if (y + h > PH - 12) { doc.addPage(); y = 18; } };
-  // плоский список за период: [{dayKey, item}] — поддерживаем и старый плоский формат
+  // плоский список за ПЕРИОД ОТЧЁТА: [{dayKey, item}] — поддерживаем и старый плоский формат
   const dayKeyFor = t => {
     const d = new Date(t);
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   };
-  const medLines = []; // {dateLbl, name, doseMg, times}
+  const periodStartKey = dayKeyFor(t0);   // первый день отчёта
+  const periodEndKey = dayKeyFor(t1);     // последний (сегодня)
+  const medLines = []; // {dayKey, name, doseMg, times}
   for (const rec of meds) {
     let items = [];
     let dayKey = null;
     if (rec && Array.isArray(rec.items)) { items = rec.items; dayKey = rec.day; }
-    else if (rec && rec.name) { items = [rec]; dayKey = t0 ? dayKeyFor(now.getTime()) : null; } // старый плоский формат → сегодня
+    else if (rec && rec.name) { items = [rec]; dayKey = dayKeyFor(now.getTime()); } // старый плоский формат → сегодня
+    // ЗА ПЕРИОД ОТЧЁТА: записи дней вне [t0..t1] не попадают в этот экспорт
+    if (dayKey && (dayKey < periodStartKey || dayKey > periodEndKey)) continue;
     for (const it of items) {
       medLines.push({ dayKey, name: it.name, doseMg: it.doseMg, times: it.times || [] });
     }
