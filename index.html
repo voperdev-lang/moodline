@@ -2112,24 +2112,69 @@ async function exportPDF(days) {
     doc.setTextColor('#111');
     doc.text('Лекарства', M, y);
     y += 5;
+
+    /* ---- таблица: строки = лекарство + время приёма, колонки = даты, ячейки = дозы (мг) ---- */
+    const rowMap = new Map(), rowOrder = [];
+    const colSet = new Set();
     for (const m of medLines) {
-      const times = m.times.map(t => MED_TIME_LABELS[t] || t).join(', ');
-      const dose = m.doseMg != null ? ' — ' + m.doseMg + ' мг' : '';
-      let line = '• ' + m.name + dose;
-      if (times) line += ' (' + times + ')';
-      if (m.dayKey) {
-        const [yy, mm, dd] = m.dayKey.split('-');
-        line += ' — ' + dd + '.' + mm;
-      }
-      const lines = doc.splitTextToSize(line, PW - 2 * M);
-      need(lines.length * 4.6 + 1.5);
-      doc.setFont('Roboto', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor('#222');
-      doc.text(lines, M + 2, y + 3);
-      y += lines.length * 4.6 + 1.5;
+      if (m.dayKey) colSet.add(m.dayKey);
+      const rk = m.name + '‖' + m.times.join(',');
+      if (!rowMap.has(rk)) { rowMap.set(rk, { name: m.name, times: m.times }); rowOrder.push(rk); }
     }
-    y += 4;
+    const colKeys = [...colSet].sort();
+    const cellMap = new Map();
+    for (const m of medLines) {
+      const rk = m.name + '‖' + m.times.join(',');
+      const ck = rk + '‖' + m.dayKey;
+      if (!cellMap.has(ck)) cellMap.set(ck, []);
+      if (m.doseMg != null) cellMap.get(ck).push(m.doseMg);
+    }
+    const firstW = 56, colW = 17, headH = 7;
+    const maxCols = Math.max(1, Math.floor((PW - 2 * M - firstW) / colW));
+    for (let chunk = 0; chunk < colKeys.length; chunk += maxCols) {
+      const cols = colKeys.slice(chunk, chunk + maxCols);
+      if (!cols.length) break;
+      // шапка: пустой угол + даты
+      need(headH + 4);
+      doc.setFontSize(7.5);
+      doc.setDrawColor('#bfbfc9'); doc.setLineWidth(0.2);
+      doc.setFillColor('#ececf1');
+      doc.rect(M, y, firstW + cols.length * colW, headH, 'FD');
+      doc.setTextColor('#333');
+      doc.setFont('Roboto', 'bold');
+      doc.text('Лекарство / день', M + 1.5, y + headH - 2.2);
+      for (let ci = 0; ci < cols.length; ci++) {
+        const [yy, mm, dd] = cols[ci].split('-');
+        doc.text(dd + '.' + mm, M + firstW + ci * colW + colW / 2, y + headH - 2.2, { align: 'center' });
+      }
+      y += headH;
+      // строки: лекарство + время; в пересечениях — дозы в мг
+      doc.setFont('Roboto', 'normal');
+      for (const rk of rowOrder) {
+        const row = rowMap.get(rk);
+        const label = row.name + (row.times.length ? ' (' + row.times.map(t => MED_TIME_LABELS[t] || t).join(', ') + ')' : '');
+        const labelLines = doc.splitTextToSize(label, firstW - 3);
+        const rowH = Math.max(headH, labelLines.length * 3.4 + 2.8);
+        need(rowH);
+        doc.rect(M, y, firstW, rowH);
+        doc.setTextColor('#111');
+        doc.text(labelLines, M + 1.5, y + 3.6);
+        for (let ci = 0; ci < cols.length; ci++) {
+          const x = M + firstW + ci * colW;
+          doc.rect(x, y, colW, rowH);
+          const doses = cellMap.get(rk + '‖' + cols[ci]);
+          if (doses && doses.length) {
+            const uniq = [...new Set(doses)];
+            let txt = uniq.map(d => String(d).replace('.', ',')).join(' / ');
+            if (doses.length > 1) txt += ' ×' + doses.length;
+            doc.setTextColor('#222');
+            doc.text(txt, x + colW / 2, y + 3.6, { align: 'center' });
+          }
+        }
+        y += rowH;
+      }
+      y += 5;
+    }
   }
 
   // титульные графики: новый (три панели) и, если есть старые записи, легаси
